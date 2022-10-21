@@ -8,4 +8,4 @@ This project was started in collaboration between [Will Donaldson](https://www.w
 
 Going forward, OMNi is intended to be an open source community project. OMNi is currently in a minimum viable stage, throughout the end of 2022 a series of videos will be released on [YouTube](https://www.youtube.com/@willdonaldson) focused on improving aspects of OMNi while also providing build guides for others looking to replicate the project. If you'd like more details immediately check out our build logs on [Hackaday](https://hackaday.io/project/181888-omni).
 
-![OMNi Wheel](https://github.com/WillDonaldson/OMNi/blob/main/media/OMNi-Wheel.png?raw=true)
+![OMNi Wheel](https://github.com/WillDonaldson/OMNi/blob/main/media/OMNi-Wheel.png)
