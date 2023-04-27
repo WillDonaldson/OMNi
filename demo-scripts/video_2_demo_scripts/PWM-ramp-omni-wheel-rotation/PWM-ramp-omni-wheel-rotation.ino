@@ -25,6 +25,12 @@ int stallPWM = 30;
 int stepDelay = 7;
 
 void setup() {
+  pinMode(PWMPin1, OUTPUT);
+  pinMode(PWMPin2, OUTPUT);
+  pinMode(PWMPin3, OUTPUT);
+  pinMode(DirPin1, OUTPUT);
+  pinMode(DirPin2, OUTPUT);
+  pinMode(DirPin3, OUTPUT);
 }
 
 void loop() {

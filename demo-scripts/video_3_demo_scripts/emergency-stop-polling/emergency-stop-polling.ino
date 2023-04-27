@@ -1,5 +1,5 @@
 /* 
- * Example program demonstrating how interrupt service routine (ISR) can be triggered when emergency stop button is pressed
+ * Example program demonstrating how the emergency stop button can be polled using Timer1
  * ISR can trigger data logging of event and/or be used to enter the robot into a standby mode while waiting for a safe restart signal
  * 
  * This demo program is primitive in that the ISR only reports the estop current state, it does not log data or wait for a safe restart signal before driving the actuators again.
@@ -11,28 +11,33 @@
  * MIT License (MIT)
  * www.willdonaldson.io
  */
- 
+#include <avr/io.h>
+#include <avr/interrupt.h>
 #include "motor_driver.h"
 
+// IMPORTANT NOTE: This program has different pin allocations (pin 10/11 are swapped) than other examples in the repo
+// This is to avoid conflicts with the registers of Timer1
+// You must rewire the connections as defined in the following pin allocations
 #define DirPin1 4
-#define DirPin2 11
+#define DirPin2 10
 #define DirPin3 7
 
 #define PWMPin1 5
-#define PWMPin2 10
+#define PWMPin2 11
 #define PWMPin3 6
 
 #define NCpin 2   // normally closed e-stop pin
 #define NOpin 3   // normally open e-stop pin
 
-volatile bool ISR_state_change;
-
 motorDriver M1(DirPin1, PWMPin1);
 motorDriver M2(DirPin2, PWMPin2);
 motorDriver M3(DirPin3, PWMPin3);
 
-unsigned long debounceDelay = 50; 
-unsigned long lastDebounceTime = 0;
+volatile int estop_status;
+
+const uint16_t TIMER1_PRESCALER = 64;
+const uint32_t CPU_FREQUENCY = F_CPU;
+const uint32_t INTERRUPT_FREQUENCY = 20; // 20Hz (50ms)
 
 #define PI 3.14159265
 float R = 0.2776; // robot wheel-base radius
@@ -40,61 +45,80 @@ int scaling_factor = 255;  // pseudo scaling factor, in open loop we can't accur
 
 void setup() {
   Serial.begin(115200);
-  
+
   pinMode(PWMPin1, OUTPUT);
   pinMode(PWMPin2, OUTPUT);
   pinMode(PWMPin3, OUTPUT);
   pinMode(DirPin1, OUTPUT);
   pinMode(DirPin2, OUTPUT);
   pinMode(DirPin3, OUTPUT);
-  
   pinMode(NCpin, INPUT);
   pinMode(NOpin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(NCpin), shared_estop_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(NOpin), shared_estop_ISR, CHANGE);
   
-  check_estop_state(); // manually call the ISR once at setup() to get the initial state of the e-stop button
+  // Timer1 settings for interrupt
+  TCCR1A = 0;                           // Set to normal mode
+  TCCR1B = 0;                           // Clear settings
+  TCNT1 = 0;                            // Reset timer1 counter
+  uint32_t timer1CompareValue = (CPU_FREQUENCY / (TIMER1_PRESCALER * INTERRUPT_FREQUENCY)) - 1;
+  OCR1A = timer1CompareValue;           // Calculate and set the compare match register value
+  TCCR1B |= (1 << WGM12);               // Enable CTC mode
+  TCCR1B |= (1 << CS11) | (1 << CS10);  // Set prescaler to 64
+  TIMSK1 |= (1 << OCIE1A);              // Enable the compare match interrupt
+  sei();                                // Enable global interrupts
 }
 
 void loop() {
-  if(ISR_state_change == true){
-    check_estop_state();
-    ISR_state_change = false; 
-  }
+  check_estop_state();
   delay(50);
 }
 
-void shared_estop_ISR(){  
-  // both hardware pins trigger the same interrupt
-  // it may seem redundant to tie both hardware pins to the same ISR, but this is to handle cases in which one of the hardware pin wirings fail
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    ISR_state_change = true;
-    lastDebounceTime = millis();
-  }
-  return;
+ISR(TIMER1_COMPA_vect) {
+  poll_estop();
 }
 
-void check_estop_state(){
+void poll_estop(){
   // emergency-stop status is deduced based on HIGH/LOW state of pins
   // if there is a wiring failure the third conditional will trigger
   int NC_state = digitalRead(NCpin);
   int NO_state = digitalRead(NOpin);
   if(NC_state == 0 && NO_state == 1){
     // estop is engaged; robot cannot move
-    calc_speed(0, 0, 0);            // send a software shutdown to actuators, in addition to a hardware (e-stop) shutdown 
-    Serial.println("Emergency stop is engaged");
+    estop_status = 0;
+    return;
   }
   else if(NC_state == 1 && NO_state == 0){
     // estop is disengaged; robot is free to roam 
-    calc_speed(0, -0.5, 0);         // drive robot 
-    Serial.println("Emergency stop is released");
+    estop_status = 1;
+    return;
   }
   else if((NC_state == 0 && NO_state == 0) || (NC_state == 1 && NO_state == 1)){
     // this is an error state, it should not be possible; wiring on estop may be damaged
-    calc_speed(0, 0, 0);            // send a software shutdown to actuators
-    Serial.println("Error state. This should not be possible. Check if wiring is correct.");
+    estop_status = 2;
+    return;
   }
-  ISR_state_change = false;         // reset for next event
+}
+
+void check_estop_state(){
+  // emergency-stop status is deduced based on HIGH/LOW state of pins
+  // if there is a wiring failure the third conditional will trigger
+  int current_estop_status = estop_status;      // convert to non-volatile int for duration on function 
+  switch(current_estop_status){
+    case 0:
+      calc_speed(0, 0, 0);            // send a software shutdown to actuators, in addition to a hardware (e-stop) shutdown 
+      Serial.println("Emergency stop is engaged");
+      break;
+    case 1:
+      calc_speed(0, -0.5, 0);         // drive robot 
+      Serial.println("Emergency stop is released");
+      break;
+    case 2:
+      calc_speed(0, 0, 0);            // send a software shutdown to actuators
+      Serial.println("Error state. This should not be possible. Check if wiring is correct.");
+      break;
+    default:
+      Serial.println("Unexpected error");
+      break;
+  }
 }
 
 void calc_speed(float x_dot, float y_dot, float theta_dot){

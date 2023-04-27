@@ -31,6 +31,13 @@ float R = 0.2776; // robot wheel-base radius
 int scaling_factor = 255;  // pseudo scaling factor, in open loop we can't accurately send RPM commands so instead this scales the PWM signal to a reasonable value in the range of [0, 255]
 
 void setup() {
+  pinMode(PWMPin1, OUTPUT);
+  pinMode(PWMPin2, OUTPUT);
+  pinMode(PWMPin3, OUTPUT);
+  pinMode(DirPin1, OUTPUT);
+  pinMode(DirPin2, OUTPUT);
+  pinMode(DirPin3, OUTPUT);
+  
   calc_speed(0, -0.5, 0);
 }
 
